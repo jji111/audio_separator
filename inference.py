@@ -31,7 +31,7 @@ NOTE_MAP = {
     'other'  : 37,  # Side Stick - 분류 못한 소리는 일단 여기로
 }
 
-# 모델이 이 확신도 이상이면 AI 판정을 믿고, 미만이면 "모르는 소리"로 보고 스펙트럼 분석으로 넘김
+# 모델이 이 확신도 이상이면 AI 판정을 믿고, 미만이면 모르는 소리로 보고 스펙트럼 분석으로 넘김 ( 탐 찾으려고 )
 CONFIDENCE_THRESHOLD = 0.65
 
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
@@ -86,7 +86,6 @@ def load_model(device):
 
 
 def classify_with_model(model, device, clip):
-    # 클립을 멜스펙트로그램으로 변환해서 모델에 넣고, 예측 라벨과 확신도를 반환
     clip   = librosa.util.fix_length(clip, size=N_SAMPLES)
     mel    = librosa.feature.melspectrogram(y=clip, sr=SR, n_mels=N_MELS, hop_length=HOP_LENGTH)
     mel_db = librosa.power_to_db(mel, ref=np.max).astype(np.float32)
@@ -123,7 +122,7 @@ def _decay_frames(stft_db, freqs, f_start, lo, hi, threshold=-52, max_frames=50)
     return max_frames
 
 def classify_with_spectrum(clip, stft_db, freqs, f_idx):
-    # 모델이 모른다고 한 소리를 주파수 특성으로 crash / tom / ride / other 로 나눔
+
     col = stft_db[:, f_idx]
 
     e_low  = _band_max(col, freqs,   80,   400)   # 톰 몸통 대역
@@ -163,8 +162,11 @@ def classify_with_spectrum(clip, stft_db, freqs, f_idx):
     return 'other'
 
 
-def confidence_to_velocity(confidence):
-    return int(np.clip(confidence * 127, 40, 127))
+def amplitude_to_velocity(clip, floor, ceil):
+    rms = librosa.feature.rms(y=clip)[0].max()
+    db  = librosa.amplitude_to_db(rms, ref=1.0)
+    v   = (db - floor) / (ceil - floor) * 107 + 20
+    return int(np.clip(v, 20, 127))
 
 
 def run():
@@ -188,7 +190,7 @@ def run():
     freqs    = librosa.fft_frequencies(sr=sr, n_fft=N_FFT)
 
     # 킥/스네어처럼 저음 중심인 것과 하이햇/심벌처럼 고음 중심인 것을
-    # 둘 다 잡으려고 전체 ODF와 고음 ODF를 합산해서 사용
+    # 둘 다 잡으려고 전체 ODF와 고음 ODF를 합산해서 사용 
     odf_full     = librosa.onset.onset_strength(y=y, sr=sr, hop_length=HOP_LENGTH)
     odf_high     = librosa.onset.onset_strength(y=y, sr=sr, hop_length=HOP_LENGTH, fmin=3000)
     odf_combined = odf_full * 0.6 + odf_high * 0.4
@@ -196,18 +198,29 @@ def run():
     onset_frames = librosa.onset.onset_detect(
         onset_envelope=odf_combined,
         sr=sr,
-        backtrack=True,
+        backtrack=True, #올라가기 시작한 곳으로 알아서
         delta=0.3,
         wait=2,
         hop_length=HOP_LENGTH
     )
+
     onset_samples = librosa.frames_to_samples(onset_frames, hop_length=HOP_LENGTH)
     onset_times   = librosa.frames_to_time(onset_frames, sr=sr, hop_length=HOP_LENGTH)
+
+    # 전체 onset 클립의 RMS dB 범위 계산 (곡마다 동적으로 velocity 범위 결정)
+    all_rms_db = []
+    for s_idx in onset_samples:
+        clip = y[s_idx : s_idx + N_SAMPLES]
+        rms  = librosa.feature.rms(y=clip)[0].max()
+        all_rms_db.append(librosa.amplitude_to_db(rms, ref=1.0))
+    vel_floor = min(all_rms_db)
+    vel_ceil  = max(all_rms_db)
+    print(f"velocity 범위: {vel_floor:.1f}dB ~ {vel_ceil:.1f}dB")
 
     print(f"온셋 {len(onset_frames)}개 탐지. AI + 스펙트럼 하이브리드 분류 시작...")
     print(f"(모델 확신도 {CONFIDENCE_THRESHOLD} 이상 → AI 판정, 미만 → 스펙트럼 분석)")
     print()
-
+    
     results = []
     for s_idx, t, f_idx in zip(onset_samples, onset_times, onset_frames):
         clip              = y[s_idx: s_idx + N_SAMPLES]
@@ -215,13 +228,13 @@ def run():
 
         if confidence >= CONFIDENCE_THRESHOLD:
             # 모델이 충분히 확신하면 그대로 사용
-            source   = 'AI'
-            velocity = confidence_to_velocity(confidence)
+            source = 'AI'
         else:
             # 모델이 애매하면 스펙트럼 분석으로 재분류
-            label    = classify_with_spectrum(clip, stft_db, freqs, f_idx)
-            source   = 'spec'
-            velocity = 80  # 스펙트럼 판정은 velocity를 중간값으로 고정
+            label  = classify_with_spectrum(clip, stft_db, freqs, f_idx)
+            source = 'spec'
+
+        velocity = amplitude_to_velocity(clip, vel_floor, vel_ceil)  # AI/스펙트럼 관계없이 실제 진폭으로 계산
 
         results.append({'time': t, 'label': label, 'velocity': velocity, 'source': source})
         print(f"  [{t:.2f}s]  {label:<10}  {source:<5}  확신도: {confidence:.2f}  vel: {velocity}")

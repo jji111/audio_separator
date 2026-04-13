@@ -49,7 +49,7 @@ class DrumDataset(Dataset):
         # 클립 길이를 N_SAMPLES로 맞춤 (짧으면 0으로 채우고, 길면 자름)
         y = librosa.util.fix_length(y, size=N_SAMPLES)
 
-        # 소리를 멜스펙트로그램 이미지로 변환
+        # 소리를 멜스펙트로그램 이미지로 변환   
         mel    = librosa.feature.melspectrogram(y=y, sr=SR, n_mels=N_MELS, hop_length=HOP_LENGTH)
         mel_db = librosa.power_to_db(mel, ref=np.max).astype(np.float32)
 
@@ -121,6 +121,7 @@ def train():
     for _, label in dataset.samples:
         label_counts[label] += 1
     print(f"데이터: 전체 {len(dataset)}개  (학습 {train_size} / 검증 {val_size})")
+
     for cls, cnt in zip(CLASSES, label_counts):
         print(f"  {cls}: {cnt}개")
     print()
@@ -128,7 +129,6 @@ def train():
     best_val_acc = 0.0
 
     for epoch in range(NUM_EPOCHS):
-        # --- 학습 ---
         model.train()
         train_loss = 0.0
         for inputs, labels in train_loader:
@@ -139,7 +139,6 @@ def train():
             optimizer.step()
             train_loss += loss.item()
 
-        # --- 검증 ---
         model.eval()
         correct = 0
         with torch.no_grad():
@@ -152,7 +151,7 @@ def train():
         avg_loss = train_loss / len(train_loader)
         print(f"Epoch {epoch+1:02d}/{NUM_EPOCHS}  loss: {avg_loss:.4f}  val_acc: {val_acc:.1f}%")
 
-        # 검증 정확도가 역대 최고일 때만 저장
+        # 검증 정확도가 최고일 때만 저장
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             torch.save(model.state_dict(), MODEL_PATH)

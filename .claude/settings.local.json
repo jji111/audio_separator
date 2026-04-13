@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip show:*)",
+      "Bash(mkdir -p \"C:\\\\Users\\\\jeil\\\\Desktop\\\\coding\\\\portfolio\\\\drum_extractor\\\\knowledge\\\\audio_dsp\")",
+      "Bash(mkdir -p \"C:\\\\Users\\\\jeil\\\\Desktop\\\\coding\\\\portfolio\\\\drum_extractor\\\\knowledge\\\\ml_cnn\")",
+      "Bash(mkdir -p \"C:\\\\Users\\\\jeil\\\\Desktop\\\\coding\\\\portfolio\\\\drum_extractor\\\\knowledge\\\\python_libs\")",
+      "Bash(mkdir -p \"C:\\\\Users\\\\jeil\\\\Desktop\\\\coding\\\\portfolio\\\\drum_extractor\\\\knowledge\\\\project_plans\")"
+    ]
+  }
+}
